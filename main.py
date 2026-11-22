@@ -1,3 +1,8 @@
+
+from sessions.summary_manager import SummaryManager
+
+from ui.summary_views import display_summaries
+
 from rich.console import Console
 from rich.panel import Panel
 
@@ -17,9 +22,20 @@ from ui.session_views import (
 console = Console()
 
 
-# Initialize session management
+# ==========================================
+# INITIALIZE SESSION MANAGEMENT
+# ==========================================
+
 session_manager = SessionManager()
 
+summary_manager = SummaryManager(
+    conversation_storage=session_manager.storage
+)
+
+
+# ==========================================
+# PAUSE APPLICATION
+# ==========================================
 
 def pause_application():
     """
@@ -33,13 +49,16 @@ def pause_application():
         pass
 
 
+# ==========================================
+# START NEW CONVERSATION
+# ==========================================
+
 def start_new_conversation():
     """
     Create and open a new conversation.
     """
 
     try:
-
         session = session_manager.create_session()
 
         console.print(
@@ -58,7 +77,6 @@ def start_new_conversation():
         )
 
     except Exception as error:
-
         console.print(
             f"[bold red]Could not start conversation: {error}[/bold red]"
         )
@@ -66,17 +84,19 @@ def start_new_conversation():
         pause_application()
 
 
+# ==========================================
+# OPEN EXISTING CONVERSATION
+# ==========================================
+
 def open_existing_conversation():
     """
     Display saved conversations and allow the user to open one.
     """
 
     try:
-
         sessions = session_manager.list_sessions()
 
         if not sessions:
-
             console.print(
                 Panel(
                     "[yellow]You have not created any conversations yet.[/yellow]",
@@ -101,7 +121,6 @@ def open_existing_conversation():
         )
 
     except Exception as error:
-
         console.print(
             f"[bold red]Could not open conversation: {error}[/bold red]"
         )
@@ -109,13 +128,16 @@ def open_existing_conversation():
         pause_application()
 
 
+# ==========================================
+# VIEW CONVERSATION HISTORY
+# ==========================================
+
 def view_conversation_history():
     """
     Display all saved conversation records.
     """
 
     try:
-
         sessions = session_manager.list_sessions()
 
         display_sessions(sessions)
@@ -123,7 +145,6 @@ def view_conversation_history():
         pause_application()
 
     except Exception as error:
-
         console.print(
             f"[bold red]Could not retrieve history: {error}[/bold red]"
         )
@@ -131,53 +152,33 @@ def view_conversation_history():
         pause_application()
 
 
+# ==========================================
+# VIEW SAVED SUMMARIES
+# ==========================================
+
 def view_saved_summaries():
     """
-    Display summaries saved inside conversation records.
+    Display all saved and validated conversation summaries.
     """
 
     try:
+        summaries = summary_manager.list_summaries()
 
-        sessions = session_manager.list_sessions()
-
-        summarized_sessions = [
-            session
-            for session in sessions
-            if session.get("summary")
-        ]
-
-        if not summarized_sessions:
-
-            console.print(
-                Panel(
-                    "[yellow]No conversation summaries are available yet.[/yellow]",
-                    title="SAVED SUMMARIES",
-                    border_style="yellow"
-                )
-            )
-
-        else:
-
-            for session in summarized_sessions:
-
-                console.print(
-                    Panel(
-                        session["summary"],
-                        title=f"Session {session['session_id'][:8]}",
-                        border_style="green"
-                    )
-                )
+        display_summaries(summaries)
 
         pause_application()
 
     except Exception as error:
-
         console.print(
             f"[bold red]Could not retrieve summaries: {error}[/bold red]"
         )
 
         pause_application()
 
+
+# ==========================================
+# MAIN APPLICATION
+# ==========================================
 
 def main():
     """
@@ -191,17 +192,12 @@ def main():
     while True:
 
         try:
-
             # Retrieve real dashboard statistics
             sessions = session_manager.list_sessions()
 
             total_conversations = len(sessions)
 
-            total_summaries = sum(
-                1
-                for session in sessions
-                if session.get("summary")
-            )
+            total_summaries = summary_manager.count_summaries()
 
             # Show the updated dashboard
             show_dashboard(
@@ -212,6 +208,7 @@ def main():
             # Display main menu
             selected_option = main_menu()
 
+            # Handle cancellation or exit
             if selected_option is None or selected_option == "exit":
 
                 console.print(
@@ -266,6 +263,9 @@ def main():
             break
 
 
-if __name__ == "__main__":
+# ==========================================
+# APPLICATION ENTRY POINT
+# ==========================================
 
+if __name__ == "__main__":
     main()
