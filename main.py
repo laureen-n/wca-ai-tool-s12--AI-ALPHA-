@@ -1,4 +1,6 @@
 
+import importlib
+
 from rich.console import Console
 from rich.panel import Panel
 
@@ -6,6 +8,8 @@ from core.logging_config import configure_logging
 
 from sessions.manager import SessionManager
 from sessions.summary_manager import SummaryManager
+
+from services.assistant_service import ClinicAssistantService
 
 from ui.dashboard import show_dashboard
 from ui.menus import main_menu
@@ -32,6 +36,82 @@ session_manager = SessionManager()
 summary_manager = SummaryManager(
     conversation_storage=session_manager.storage
 )
+
+
+# ==========================================
+# LOAD ROLE 1 AI MODULE
+# ==========================================
+
+def build_assistant_service():
+    """
+    Load Role 1's AI functions and connect them
+    to Role 2 and Role 3.
+
+    Expected module:
+        ai_client.py
+
+    Expected functions:
+        generate_response(history)
+        generate_summary(history)
+    """
+
+    try:
+
+        ai_module = importlib.import_module("ai_client")
+
+    except ModuleNotFoundError as error:
+
+        if error.name == "ai_client":
+
+            logger.warning(
+                "Role 1 AI module has not been installed."
+            )
+
+            return None
+
+        raise
+
+    response_generator = getattr(
+        ai_module,
+        "generate_response",
+        None
+    )
+
+    summary_generator = getattr(
+        ai_module,
+        "generate_summary",
+        None
+    )
+
+    if not callable(response_generator):
+
+        logger.error(
+            "ai_client.py is missing generate_response()."
+        )
+
+        return None
+
+    if not callable(summary_generator):
+
+        logger.error(
+            "ai_client.py is missing generate_summary()."
+        )
+
+        return None
+
+    logger.info(
+        "Role 1 AI module loaded successfully."
+    )
+
+    return ClinicAssistantService(
+        session_manager=session_manager,
+        summary_manager=summary_manager,
+        response_generator=response_generator,
+        summary_generator=summary_generator
+    )
+
+
+assistant_service = build_assistant_service()
 
 
 # ==========================================
@@ -71,7 +151,8 @@ def start_new_conversation():
 
         run_conversation(
             session_manager,
-            session["session_id"]
+            session["session_id"],
+            assistant_service
         )
 
     except Exception:
@@ -81,8 +162,7 @@ def start_new_conversation():
         )
 
         console.print(
-            "[bold red]Could not start the conversation. "
-            "Please check the application logs.[/bold red]"
+            "[bold red]Could not start the conversation.[/bold red]"
         )
 
         pause_application()
@@ -120,7 +200,8 @@ def open_existing_conversation():
 
         run_conversation(
             session_manager,
-            selected_session
+            selected_session,
+            assistant_service
         )
 
     except Exception:
@@ -130,8 +211,7 @@ def open_existing_conversation():
         )
 
         console.print(
-            "[bold red]Could not open the conversation. "
-            "Please check the application logs.[/bold red]"
+            "[bold red]Could not open the conversation.[/bold red]"
         )
 
         pause_application()
@@ -192,7 +272,7 @@ def view_saved_summaries():
 
 
 # ==========================================
-# MAIN APPLICATION CONTROLLER
+# MAIN APPLICATION
 # ==========================================
 
 def main():
@@ -201,13 +281,31 @@ def main():
         "[bold bright_cyan]Starting Clinic Care Assistant...[/bold bright_cyan]"
     )
 
+    if assistant_service is None:
+
+        console.print(
+            Panel(
+                "[yellow]AI integration is not yet available.[/yellow]\n"
+                "You can still create, save and reopen conversations.\n"
+                "Contact the Role 1 developer to complete the Gemini connection.",
+                title="OFFLINE MODE",
+                border_style="yellow"
+            )
+        )
+
+    else:
+
+        console.print(
+            "[bold green]AI assistant connected successfully.[/bold green]"
+        )
+
     logger.info("Clinic Care Assistant started.")
 
     while True:
 
         try:
 
-            # Calculate actual application statistics
+            # Calculate actual dashboard statistics
             total_conversations = session_manager.count_sessions()
 
             total_summaries = summary_manager.count_summaries()
@@ -218,10 +316,10 @@ def main():
                 total_summaries=total_summaries
             )
 
-            # Display interactive menu
+            # Display main menu
             selected_option = main_menu()
 
-            # Handle cancellation and exit
+            # Handle exit
             if selected_option is None or selected_option == "exit":
 
                 console.print(
@@ -236,7 +334,7 @@ def main():
 
                 break
 
-            # Handle menu choices
+            # Navigate menu
             if selected_option == "new":
 
                 start_new_conversation()
@@ -288,11 +386,11 @@ def main():
             )
 
             console.print(
-                "\n[bold red]An unexpected error occurred.[/bold red]"
+                "\n[bold red]An unexpected application error occurred.[/bold red]"
             )
 
             console.print(
-                "[dim]Technical information has been recorded in the application log.[/dim]"
+                "[dim]Technical details were recorded in the application log.[/dim]"
             )
 
             pause_application()

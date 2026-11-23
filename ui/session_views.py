@@ -11,6 +11,10 @@ from rich.text import Text
 
 from sessions.storage import StorageError
 
+from services.assistant_service import (
+    AssistantIntegrationError
+)
+
 
 console = Console()
 
@@ -70,7 +74,7 @@ def display_sessions(sessions):
 # ==========================================
 
 def select_session(sessions):
-    """Allow a user to choose a saved conversation."""
+    """Allow the user to select an existing conversation."""
 
     if not sessions:
 
@@ -93,10 +97,7 @@ def select_session(sessions):
         )
 
         choices.append(
-            Choice(
-                label,
-                value=session_id
-            )
+            Choice(label, value=session_id)
         )
 
     choices.append(
@@ -118,11 +119,11 @@ def select_session(sessions):
 
 
 # ==========================================
-# DISPLAY CONVERSATION MESSAGES
+# DISPLAY CONVERSATION
 # ==========================================
 
 def display_conversation(session):
-    """Display the messages in a conversation."""
+    """Display the messages belonging to a conversation."""
 
     console.print()
 
@@ -160,7 +161,6 @@ def display_conversation(session):
             title = "CLINIC ASSISTANT"
             style = "bright_green"
 
-        # Treat user and assistant messages as plain text.
         content = Text(
             message["message"],
             style="white"
@@ -177,15 +177,60 @@ def display_conversation(session):
 
 
 # ==========================================
+# DISPLAY AI RESPONSE
+# ==========================================
+
+def display_ai_response(response):
+    """Display the validated AI response."""
+
+    console.print(
+        Panel(
+            Text(
+                response["answer"],
+                style="white"
+            ),
+            title="CLINIC ASSISTANT",
+            border_style="green",
+            padding=(1, 2)
+        )
+    )
+
+    console.print(
+        f"[dim]Category: {response['category']}[/dim]"
+    )
+
+    if response["follow_up_question"]:
+
+        console.print(
+            Panel(
+                Text(
+                    response["follow_up_question"],
+                    style="bright_white"
+                ),
+                title="FOLLOW-UP QUESTION",
+                border_style="cyan"
+            )
+        )
+
+
+# ==========================================
 # RUN AN ACTIVE CONVERSATION
 # ==========================================
 
-def run_conversation(session_manager, session_id):
+def run_conversation(
+    session_manager,
+    session_id,
+    assistant_service=None
+):
     """
     Run a conversation session.
 
-    Messages are automatically saved.
-    AI responses will be connected during team integration.
+    If the AI service is available:
+        Questions are sent to the AI model.
+        Responses are validated and saved.
+
+    If the AI service is unavailable:
+        Questions are saved locally.
     """
 
     console.print(
@@ -193,7 +238,8 @@ def run_conversation(session_manager, session_id):
             "[bold green]Conversation session opened successfully.[/bold green]\n\n"
             "[dim]Your messages are saved automatically.[/dim]\n\n"
             "[yellow]Do not enter patient names, identification numbers, "
-            "or private medical records.[/yellow]",
+            "or private medical records.[/yellow]\n\n"
+            "[cyan]Commands: /back to return, /summary to generate a summary.[/cyan]",
             title="SESSION STARTED",
             border_style="green"
         )
@@ -201,7 +247,7 @@ def run_conversation(session_manager, session_id):
 
     while True:
 
-        # Load the conversation
+        # Load latest conversation
         try:
 
             session = session_manager.open_session(session_id)
@@ -209,7 +255,7 @@ def run_conversation(session_manager, session_id):
         except StorageError:
 
             logger.exception(
-                "Could not load an active conversation."
+                "Could not load the active conversation."
             )
 
             console.print(
@@ -220,11 +266,11 @@ def run_conversation(session_manager, session_id):
 
         display_conversation(session)
 
-        # Accept user input
+        # Receive user input
         try:
 
             user_message = questionary.text(
-                "Enter your question (type /back to return):"
+                "Enter your question:"
             ).ask()
 
         except (KeyboardInterrupt, EOFError):
@@ -235,17 +281,11 @@ def run_conversation(session_manager, session_id):
 
             break
 
-        # Handle cancellation
         if user_message is None:
             break
 
         user_message = user_message.strip()
 
-        # Return to main menu
-        if user_message.lower() == "/back":
-            break
-
-        # Reject empty input
         if not user_message:
 
             console.print(
@@ -254,43 +294,131 @@ def run_conversation(session_manager, session_id):
 
             continue
 
-        # Save user message
+        # Return to main menu
+        if user_message.lower() == "/back":
+            break
+
+        # Generate a final summary
+        if user_message.lower() == "/summary":
+
+            if assistant_service is None:
+
+                console.print(
+                    "[yellow]AI summary generation is not connected yet. "
+                    "Please integrate Role 1's AI module first.[/yellow]"
+                )
+
+                continue
+
+            try:
+
+                saved_summary = (
+                    assistant_service.generate_and_save_summary(
+                        session_id
+                    )
+                )
+
+                console.print(
+                    Panel(
+                        Text(
+                            saved_summary["summary"],
+                            style="white"
+                        ),
+                        title="CONVERSATION SUMMARY SAVED",
+                        border_style="green",
+                        padding=(1, 2)
+                    )
+                )
+
+                # Return to dashboard after successful summarization
+                break
+
+            except AssistantIntegrationError as error:
+
+                console.print(
+                    f"[yellow]{error}[/yellow]"
+                )
+
+                continue
+
+            except Exception:
+
+                logger.exception(
+                    "Unexpected summary generation failure."
+                )
+
+                console.print(
+                    "[bold red]Could not generate the summary.[/bold red]"
+                )
+
+                continue
+
+        # ==================================
+        # OFFLINE MODE
+        # ==================================
+
+        if assistant_service is None:
+
+            try:
+
+                session_manager.add_message(
+                    session_id,
+                    "user",
+                    user_message
+                )
+
+                console.print(
+                    Panel(
+                        "[green]Your question has been saved successfully.[/green]\n\n"
+                        "[yellow]AI integration is pending. "
+                        "The assistant will respond once Role 1's API is connected.[/yellow]",
+                        title="MESSAGE SAVED",
+                        border_style="green"
+                    )
+                )
+
+            except (ValueError, StorageError) as error:
+
+                console.print(
+                    f"[red]Could not save your question: {error}[/red]"
+                )
+
+            continue
+
+        # ==================================
+        # AI MODE
+        # ==================================
+
         try:
 
-            session_manager.add_message(
+            response = assistant_service.ask(
                 session_id,
-                "user",
                 user_message
             )
 
-        except ValueError as error:
+            display_ai_response(response)
+
+        except AssistantIntegrationError as error:
 
             console.print(
-                f"[yellow]Invalid input: {error}[/yellow]"
+                Panel(
+                    f"[yellow]{error}[/yellow]\n\n"
+                    "[dim]Your question remains saved in the conversation.[/dim]",
+                    title="ASSISTANT RESPONSE UNAVAILABLE",
+                    border_style="yellow"
+                )
             )
 
             continue
 
-        except StorageError:
+        except Exception:
 
             logger.exception(
-                "Could not save a conversation message."
+                "Unexpected conversation processing failure."
             )
 
             console.print(
-                "[bold red]Your message could not be saved. "
-                "Please try again.[/bold red]"
+                "[bold red]An unexpected error occurred while processing your question.[/bold red]"
             )
 
             break
-
-        # Confirm successful saving
-        console.print(
-            Panel(
-                "[green]Your question has been saved successfully.[/green]\n\n"
-                "[yellow]AI integration is pending. "
-                "The assistant will respond when Role 1's API is connected.[/yellow]",
-                title="MESSAGE SAVED",
-                border_style="green"
-            )
-        )
