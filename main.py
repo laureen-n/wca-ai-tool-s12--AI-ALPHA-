@@ -1,15 +1,13 @@
 
-from sessions.summary_manager import SummaryManager
-
-from ui.summary_views import display_summaries
-
 from rich.console import Console
 from rich.panel import Panel
 
+from core.logging_config import configure_logging
+
 from sessions.manager import SessionManager
+from sessions.summary_manager import SummaryManager
 
 from ui.dashboard import show_dashboard
-
 from ui.menus import main_menu
 
 from ui.session_views import (
@@ -18,13 +16,16 @@ from ui.session_views import (
     run_conversation
 )
 
+from ui.summary_views import display_summaries
+
+
+# ==========================================
+# APPLICATION INITIALIZATION
+# ==========================================
 
 console = Console()
 
-
-# ==========================================
-# INITIALIZE SESSION MANAGEMENT
-# ==========================================
+logger = configure_logging()
 
 session_manager = SessionManager()
 
@@ -38,11 +39,10 @@ summary_manager = SummaryManager(
 # ==========================================
 
 def pause_application():
-    """
-    Wait for the user to press Enter.
-    """
+    """Wait for the user to press Enter."""
 
     try:
+
         input("\nPress Enter to return to the dashboard...")
 
     except (KeyboardInterrupt, EOFError):
@@ -54,11 +54,9 @@ def pause_application():
 # ==========================================
 
 def start_new_conversation():
-    """
-    Create and open a new conversation.
-    """
 
     try:
+
         session = session_manager.create_session()
 
         console.print(
@@ -76,9 +74,15 @@ def start_new_conversation():
             session["session_id"]
         )
 
-    except Exception as error:
+    except Exception:
+
+        logger.exception(
+            "Could not start a new conversation."
+        )
+
         console.print(
-            f"[bold red]Could not start conversation: {error}[/bold red]"
+            "[bold red]Could not start the conversation. "
+            "Please check the application logs.[/bold red]"
         )
 
         pause_application()
@@ -89,14 +93,13 @@ def start_new_conversation():
 # ==========================================
 
 def open_existing_conversation():
-    """
-    Display saved conversations and allow the user to open one.
-    """
 
     try:
+
         sessions = session_manager.list_sessions()
 
         if not sessions:
+
             console.print(
                 Panel(
                     "[yellow]You have not created any conversations yet.[/yellow]",
@@ -120,9 +123,15 @@ def open_existing_conversation():
             selected_session
         )
 
-    except Exception as error:
+    except Exception:
+
+        logger.exception(
+            "Could not open an existing conversation."
+        )
+
         console.print(
-            f"[bold red]Could not open conversation: {error}[/bold red]"
+            "[bold red]Could not open the conversation. "
+            "Please check the application logs.[/bold red]"
         )
 
         pause_application()
@@ -133,20 +142,23 @@ def open_existing_conversation():
 # ==========================================
 
 def view_conversation_history():
-    """
-    Display all saved conversation records.
-    """
 
     try:
+
         sessions = session_manager.list_sessions()
 
         display_sessions(sessions)
 
         pause_application()
 
-    except Exception as error:
+    except Exception:
+
+        logger.exception(
+            "Could not display conversation history."
+        )
+
         console.print(
-            f"[bold red]Could not retrieve history: {error}[/bold red]"
+            "[bold red]Could not retrieve conversation history.[/bold red]"
         )
 
         pause_application()
@@ -157,58 +169,59 @@ def view_conversation_history():
 # ==========================================
 
 def view_saved_summaries():
-    """
-    Display all saved and validated conversation summaries.
-    """
 
     try:
+
         summaries = summary_manager.list_summaries()
 
         display_summaries(summaries)
 
         pause_application()
 
-    except Exception as error:
+    except Exception:
+
+        logger.exception(
+            "Could not retrieve saved summaries."
+        )
+
         console.print(
-            f"[bold red]Could not retrieve summaries: {error}[/bold red]"
+            "[bold red]Could not retrieve summaries.[/bold red]"
         )
 
         pause_application()
 
 
 # ==========================================
-# MAIN APPLICATION
+# MAIN APPLICATION CONTROLLER
 # ==========================================
 
 def main():
-    """
-    Main application controller.
-    """
 
     console.print(
         "[bold bright_cyan]Starting Clinic Care Assistant...[/bold bright_cyan]"
     )
 
+    logger.info("Clinic Care Assistant started.")
+
     while True:
 
         try:
-            # Retrieve real dashboard statistics
-            sessions = session_manager.list_sessions()
 
-            total_conversations = len(sessions)
+            # Calculate actual application statistics
+            total_conversations = session_manager.count_sessions()
 
             total_summaries = summary_manager.count_summaries()
 
-            # Show the updated dashboard
+            # Display dashboard
             show_dashboard(
                 total_conversations=total_conversations,
                 total_summaries=total_summaries
             )
 
-            # Display main menu
+            # Display interactive menu
             selected_option = main_menu()
 
-            # Handle cancellation or exit
+            # Handle cancellation and exit
             if selected_option is None or selected_option == "exit":
 
                 console.print(
@@ -219,9 +232,11 @@ def main():
                     )
                 )
 
+                logger.info("Clinic Care Assistant closed.")
+
                 break
 
-            # Handle menu navigation
+            # Handle menu choices
             if selected_option == "new":
 
                 start_new_conversation()
@@ -252,6 +267,8 @@ def main():
                 "\n[yellow]Application interrupted safely.[/yellow]"
             )
 
+            logger.info("Application interrupted by user.")
+
             break
 
         except EOFError:
@@ -260,7 +277,25 @@ def main():
                 "\n[yellow]Application closed.[/yellow]"
             )
 
+            logger.info("Application input stream closed.")
+
             break
+
+        except Exception:
+
+            logger.exception(
+                "Unexpected error in the main application."
+            )
+
+            console.print(
+                "\n[bold red]An unexpected error occurred.[/bold red]"
+            )
+
+            console.print(
+                "[dim]Technical information has been recorded in the application log.[/dim]"
+            )
+
+            pause_application()
 
 
 # ==========================================

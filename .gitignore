@@ -1,33 +1,63 @@
-# Python cache
+# ==========================================
+# PYTHON
+# ==========================================
+
 __pycache__/
 *.py[cod]
+*.pyo
 
-# Virtual environments
+# ==========================================
+# VIRTUAL ENVIRONMENTS
+# ==========================================
+
 .venv/
 venv/
+env/
 
-# Environment variables and API keys
+# ==========================================
+# ENVIRONMENT VARIABLES
+# ==========================================
+
 .env
 .env.*
 !.env.example
 
-# Testing
+# ==========================================
+# TESTING
+# ==========================================
+
 .pytest_cache/
 .coverage
 htmlcov/
 
-# IDE files
+# ==========================================
+# IDE
+# ==========================================
+
 .vscode/
 .idea/
 
-# Logs and temporary files
-*.log
-*.tmp
+# ==========================================
+# APPLICATION LOGS
+# ==========================================
 
-# Private conversation data
+logs/
+*.log
+
+# ==========================================
+# PRIVATE CONVERSATION DATA
+# ==========================================
+
 data/conversations/*.json
 data/summaries/*.json
 
-# Preserve empty folders
+# Preserve empty data directories
 !data/conversations/.gitkeep
 !data/summaries/.gitkeep
+
+# ==========================================
+# TEMPORARY FILES
+# ==========================================
+
+*.tmp
+*.bak
