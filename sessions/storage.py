@@ -1,13 +1,15 @@
+
 import json
 import logging
 import os
 import tempfile
 
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("clinic_faq.storage")
 
 
 # ==========================================
@@ -19,11 +21,11 @@ class StorageError(Exception):
 
 
 class SessionNotFoundError(StorageError):
-    """Raised when a requested session does not exist."""
+    """Raised when a requested conversation does not exist."""
 
 
 class InvalidSessionDataError(StorageError):
-    """Raised when session data is invalid or corrupted."""
+    """Raised when conversation data is invalid or corrupted."""
 
 
 # ==========================================
@@ -39,21 +41,24 @@ class ConversationStorage:
 
     def __init__(self, conversations_dir=None):
 
-        # Find the project root automatically
         project_root = Path(__file__).resolve().parents[1]
 
-        # Set the default conversation directory
         self.conversations_dir = (
             Path(conversations_dir)
             if conversations_dir is not None
             else project_root / "data" / "conversations"
         )
 
-        # Ensure the storage directory exists
-        self.conversations_dir.mkdir(
-            parents=True,
-            exist_ok=True
-        )
+        try:
+            self.conversations_dir.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+        except OSError as error:
+            raise StorageError(
+                "Could not create the conversation directory."
+            ) from error
 
     # ======================================
     # SESSION ID VALIDATION
@@ -61,11 +66,7 @@ class ConversationStorage:
 
     @staticmethod
     def normalize_session_id(session_id):
-        """
-        Validate and normalize a UUID.
-
-        This also prevents unsafe file paths.
-        """
+        """Validate and normalize a UUID."""
 
         if not isinstance(session_id, str):
             raise InvalidSessionDataError(
@@ -75,11 +76,33 @@ class ConversationStorage:
         try:
             return str(UUID(session_id))
 
-        except (ValueError, AttributeError, TypeError):
-
+        except (ValueError, TypeError, AttributeError) as error:
             raise InvalidSessionDataError(
-                "Invalid session ID. Expected a valid UUID."
+                "Invalid session ID. A valid UUID is required."
+            ) from error
+
+    # ======================================
+    # TIMESTAMP VALIDATION
+    # ======================================
+
+    @staticmethod
+    def validate_timestamp(value, field_name):
+        """Validate an ISO-formatted timestamp."""
+
+        if not isinstance(value, str) or not value.strip():
+            raise InvalidSessionDataError(
+                f"{field_name} must be a non-empty string."
             )
+
+        try:
+            datetime.fromisoformat(
+                value.replace("Z", "+00:00")
+            )
+
+        except ValueError as error:
+            raise InvalidSessionDataError(
+                f"Invalid timestamp in {field_name}."
+            ) from error
 
     # ======================================
     # SESSION DATA VALIDATION
@@ -87,9 +110,7 @@ class ConversationStorage:
 
     @classmethod
     def validate_session_data(cls, session_data):
-        """
-        Validate the structure of a conversation.
-        """
+        """Validate the complete conversation structure."""
 
         if not isinstance(session_data, dict):
             raise InvalidSessionDataError(
@@ -108,34 +129,22 @@ class ConversationStorage:
 
         if missing_fields:
             raise InvalidSessionDataError(
-                f"Missing required fields: {', '.join(sorted(missing_fields))}"
+                f"Missing fields: {', '.join(sorted(missing_fields))}"
             )
 
         cls.normalize_session_id(session_data["session_id"])
 
-        # Validate timestamps
-        from datetime import datetime
+        cls.validate_timestamp(
+            session_data["created_at"],
+            "created_at"
+        )
 
-        for field in ("created_at", "updated_at"):
+        cls.validate_timestamp(
+            session_data["updated_at"],
+            "updated_at"
+        )
 
-            value = session_data[field]
-
-            if not isinstance(value, str) or not value.strip():
-                raise InvalidSessionDataError(
-                    f"{field} must be a non-empty string."
-                )
-
-            try:
-                datetime.fromisoformat(
-                    value.replace("Z", "+00:00")
-                )
-
-            except ValueError:
-                raise InvalidSessionDataError(
-                    f"Invalid timestamp in field: {field}"
-                )
-
-        # Validate message history
+        # Validate conversation messages
         messages = session_data["messages"]
 
         if not isinstance(messages, list):
@@ -162,7 +171,7 @@ class ConversationStorage:
                     f"Message {index} must contain non-empty text."
                 )
 
-        # Summary can be empty until generated
+        # Summary can remain empty until generated
         summary = session_data["summary"]
 
         if summary is not None and not isinstance(summary, str):
@@ -171,7 +180,7 @@ class ConversationStorage:
             )
 
     # ======================================
-    # GET CONVERSATION FILE PATH
+    # GET SESSION FILE PATH
     # ======================================
 
     def _get_session_path(self, session_id):
@@ -181,22 +190,33 @@ class ConversationStorage:
         return self.conversations_dir / f"{normalized_id}.json"
 
     # ======================================
-    # SAVE CONVERSATION
+    # SAVE SESSION
     # ======================================
 
     def save_session(self, session_data):
         """
-        Save a conversation safely using an atomic file replacement.
+        Save a conversation using atomic file replacement.
 
-        The temporary file prevents an interrupted write from
-        leaving a partially written conversation file.
+        A temporary file is written first to reduce the risk
+        of leaving a partially written conversation.
         """
+
+        if not isinstance(session_data, dict):
+            raise InvalidSessionDataError(
+                "Session data must be a dictionary."
+            )
+
+        # Work with a copy to protect caller data
+        session_data = dict(session_data)
+
+        # Normalize the session UUID
+        session_data["session_id"] = self.normalize_session_id(
+            session_data.get("session_id")
+        )
 
         self.validate_session_data(session_data)
 
-        session_id = self.normalize_session_id(
-            session_data["session_id"]
-        )
+        session_id = session_data["session_id"]
 
         file_path = self._get_session_path(session_id)
 
@@ -204,7 +224,6 @@ class ConversationStorage:
 
         try:
 
-            # Create a temporary file in the same directory
             file_descriptor, temp_name = tempfile.mkstemp(
                 prefix=f".{session_id}.",
                 suffix=".tmp",
@@ -231,15 +250,14 @@ class ConversationStorage:
                 file.flush()
                 os.fsync(file.fileno())
 
-            # Replace the previous file with the new version
+            # Replace the old file only after successful writing
             os.replace(
                 temp_path,
                 file_path
             )
 
             logger.info(
-                "Session %s saved successfully.",
-                session_id
+                "Conversation saved successfully."
             )
 
             return file_path
@@ -247,12 +265,12 @@ class ConversationStorage:
         except (OSError, TypeError, ValueError) as error:
 
             raise StorageError(
-                f"Could not save conversation: {error}"
+                "Could not save the conversation."
             ) from error
 
         finally:
 
-            # Remove an unfinished temporary file if necessary
+            # Remove unfinished temporary files
             if temp_path is not None and temp_path.exists():
 
                 try:
@@ -260,15 +278,15 @@ class ConversationStorage:
 
                 except OSError:
                     logger.warning(
-                        "Could not remove temporary file: %s",
-                        temp_path
+                        "Could not remove an unfinished temporary file."
                     )
 
     # ======================================
-    # READ AND VALIDATE A CONVERSATION FILE
+    # READ AND VALIDATE SESSION FILE
     # ======================================
 
     def _read_session_file(self, file_path):
+        """Read and validate a conversation JSON file."""
 
         try:
 
@@ -276,23 +294,29 @@ class ConversationStorage:
                 encoding="utf-8"
             )
 
-        except FileNotFoundError:
+        except FileNotFoundError as error:
 
             raise SessionNotFoundError(
-                "The requested conversation could not be found."
-            )
+                "The requested conversation does not exist."
+            ) from error
+
+        except UnicodeError as error:
+
+            raise InvalidSessionDataError(
+                "The conversation file contains invalid UTF-8 data."
+            ) from error
 
         except OSError as error:
 
             raise StorageError(
-                f"Could not read conversation file: {error}"
+                "Could not read the conversation file."
             ) from error
 
         try:
 
             session_data = json.loads(raw_content)
 
-        except (json.JSONDecodeError, UnicodeError) as error:
+        except json.JSONDecodeError as error:
 
             raise InvalidSessionDataError(
                 "The conversation file contains invalid JSON."
@@ -300,34 +324,34 @@ class ConversationStorage:
 
         self.validate_session_data(session_data)
 
-        # Verify that the file name matches the session ID
         file_session_id = self.normalize_session_id(
             session_data["session_id"]
         )
 
+        # Ensure file name matches its stored UUID
         if file_session_id != file_path.stem:
 
             raise InvalidSessionDataError(
-                "The session ID does not match the file name."
+                "The session ID does not match the filename."
             )
+
+        session_data["session_id"] = file_session_id
 
         return session_data
 
     # ======================================
-    # LOAD CONVERSATION
+    # LOAD SESSION
     # ======================================
 
     def load_session(self, session_id):
-        """
-        Retrieve an existing conversation by UUID.
-        """
+        """Retrieve a conversation using its UUID."""
 
         file_path = self._get_session_path(session_id)
 
         return self._read_session_file(file_path)
 
     # ======================================
-    # LIST ALL CONVERSATIONS
+    # LIST ALL SESSIONS
     # ======================================
 
     def list_sessions(self):
@@ -340,9 +364,6 @@ class ConversationStorage:
 
         sessions = []
 
-        if not self.conversations_dir.exists():
-            return sessions
-
         for file_path in self.conversations_dir.glob("*.json"):
 
             try:
@@ -351,12 +372,11 @@ class ConversationStorage:
 
                 sessions.append(session)
 
-            except StorageError as error:
+            except StorageError:
 
                 logger.warning(
-                    "Skipping invalid conversation file %s: %s",
-                    file_path.name,
-                    error
+                    "Skipping invalid conversation file: %s",
+                    file_path.name
                 )
 
         # Most recently updated conversations appear first

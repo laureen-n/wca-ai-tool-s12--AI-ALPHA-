@@ -1,3 +1,4 @@
+
 import logging
 
 from datetime import datetime, timezone
@@ -13,19 +14,15 @@ from sessions.summary_storage import (
 )
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("clinic_faq.summary_manager")
 
-
-# ==========================================
-# SUMMARY MANAGEMENT
-# ==========================================
 
 class SummaryManager:
     """
-    Coordinates conversation summaries and their sessions.
+    Manages summaries and links them to their conversations.
 
-    Role 1 supplies the AI-generated summary text.
-    Role 3 saves, retrieves and manages that summary.
+    Role 1 generates the summary.
+    Role 3 saves, retrieves and displays it.
     """
 
     def __init__(
@@ -51,46 +48,32 @@ class SummaryManager:
 
         return datetime.now(
             timezone.utc
-        ).isoformat(timespec="seconds")
+        ).isoformat()
 
     # ======================================
     # SAVE SUMMARY
     # ======================================
 
     def save_summary(self, session_id, summary_text):
-        """
-        Save a summary and update its original conversation.
-
-        Args:
-            session_id: ID of an existing conversation.
-            summary_text: Summary text returned by the AI model.
-
-        Returns:
-            The saved summary dictionary.
-        """
 
         if not isinstance(summary_text, str):
-
-            raise ValueError(
-                "Summary must be provided as text."
-            )
+            raise ValueError("Summary must be text.")
 
         summary_text = summary_text.strip()
 
         if not summary_text:
+            raise ValueError("Summary cannot be empty.")
 
-            raise ValueError(
-                "Summary cannot be empty."
-            )
-
-        # Verify that the conversation exists
+        # Verify the conversation exists
         session = self.conversation_storage.load_session(
             session_id
         )
 
+        session_id = session["session_id"]
+
         timestamp = self._current_timestamp()
 
-        # Preserve the original summary creation time
+        # Preserve the original creation time when updating
         try:
 
             previous_summary = self.summary_storage.load_summary(
@@ -102,37 +85,33 @@ class SummaryManager:
         except SummaryNotFoundError:
 
             previous_summary = None
-
             created_at = timestamp
 
         summary_data = {
-            "session_id": session["session_id"],
+            "session_id": session_id,
             "created_at": created_at,
             "updated_at": timestamp,
             "summary": summary_text
         }
 
-        # Synchronize the conversation record
-        previous_session = dict(session)
+        updated_session = dict(session)
 
-        session["summary"] = summary_text
-        session["updated_at"] = timestamp
+        updated_session["summary"] = summary_text
+        updated_session["updated_at"] = timestamp
 
-        # Save the summary JSON first
-        self.summary_storage.save_summary(
-            summary_data
-        )
+        # Save summary first
+        self.summary_storage.save_summary(summary_data)
 
         try:
 
-            # Update the original conversation JSON
+            # Update linked conversation
             self.conversation_storage.save_session(
-                session
+                updated_session
             )
 
         except Exception as error:
 
-            # Attempt to restore the previous summary file
+            # Attempt to restore the previous summary
             try:
 
                 if previous_summary is None:
@@ -150,33 +129,23 @@ class SummaryManager:
             except StorageError:
 
                 logger.exception(
-                    "Summary rollback failed for session %s.",
-                    session_id
+                    "Could not restore previous summary."
                 )
 
             raise StorageError(
-                "The summary was saved, but the conversation "
-                "record could not be updated. "
-                "Please check the storage files."
+                "The summary could not be linked to its conversation."
             ) from error
 
-        logger.info(
-            "Summary successfully linked to session %s.",
-            session_id
-        )
+        logger.info("Conversation summary saved and linked.")
 
         return summary_data
 
     # ======================================
-    # GET ONE SUMMARY
+    # GET SUMMARY
     # ======================================
 
     def get_summary(self, session_id):
-        """
-        Retrieve a summary and verify its original session.
-        """
 
-        # Ensure its original conversation still exists
         session = self.conversation_storage.load_session(
             session_id
         )
@@ -185,23 +154,19 @@ class SummaryManager:
             session_id
         )
 
-        # Check the two stored records agree
         if session["summary"] != summary["summary"]:
 
             raise StorageError(
-                "Summary information does not match its conversation."
+                "The summary and conversation records do not match."
             )
 
         return summary
 
     # ======================================
-    # LIST ALL SUMMARIES
+    # LIST SUMMARIES
     # ======================================
 
     def list_summaries(self):
-        """
-        Return summaries linked to existing conversations.
-        """
 
         summaries = []
 
@@ -214,27 +179,23 @@ class SummaryManager:
                 )
 
                 if session["summary"] == summary["summary"]:
-
                     summaries.append(summary)
 
                 else:
-
                     logger.warning(
-                        "Summary and conversation are inconsistent: %s",
-                        summary["session_id"]
+                        "A summary does not match its conversation."
                     )
 
-            except StorageError as error:
+            except StorageError:
 
                 logger.warning(
-                    "Skipping summary with unavailable session: %s",
-                    error
+                    "A summary has no valid conversation."
                 )
 
         return summaries
 
     # ======================================
-    # SUMMARY COUNT
+    # COUNT SUMMARIES
     # ======================================
 
     def count_summaries(self):

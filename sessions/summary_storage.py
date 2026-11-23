@@ -1,3 +1,4 @@
+
 import json
 import logging
 import os
@@ -13,7 +14,7 @@ from sessions.storage import (
 )
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("clinic_faq.summary_storage")
 
 
 # ==========================================
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ==========================================
 
 class SummaryNotFoundError(StorageError):
-    """Raised when a saved summary does not exist."""
+    """Raised when a saved summary cannot be found."""
 
 
 # ==========================================
@@ -30,10 +31,10 @@ class SummaryNotFoundError(StorageError):
 
 class SummaryStorage:
     """
-    Handles persistent storage of conversation summaries.
+    Handles saving, loading, listing and deleting summaries.
 
-    Each conversation has at most one current summary.
-    A newly generated summary replaces the previous one.
+    Each summary is stored in an individual JSON file
+    linked to its original conversation session ID.
     """
 
     def __init__(self, summaries_dir=None):
@@ -46,25 +47,28 @@ class SummaryStorage:
             else project_root / "data" / "summaries"
         )
 
-        self.summaries_dir.mkdir(
-            parents=True,
-            exist_ok=True
-        )
+        try:
+            self.summaries_dir.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+        except OSError as error:
+            raise StorageError(
+                "Could not create the summaries directory."
+            ) from error
 
     # ======================================
     # VALIDATE SUMMARY DATA
     # ======================================
 
-    @staticmethod
-    def validate_summary_data(summary_data):
-        """
-        Validate a summary before saving or returning it.
-        """
+    @classmethod
+    def validate_summary_data(cls, summary_data):
+        """Validate the structure of a summary."""
 
         if not isinstance(summary_data, dict):
-
             raise InvalidSessionDataError(
-                "Summary data must be a JSON object."
+                "Summary data must be a dictionary."
             )
 
         required_fields = {
@@ -77,42 +81,38 @@ class SummaryStorage:
         missing_fields = required_fields - summary_data.keys()
 
         if missing_fields:
-
             raise InvalidSessionDataError(
-                "Missing summary fields: "
-                + ", ".join(sorted(missing_fields))
+                f"Missing summary fields: {', '.join(sorted(missing_fields))}"
             )
 
         ConversationStorage.normalize_session_id(
             summary_data["session_id"]
         )
 
+        # Validate timestamps
         for field in ("created_at", "updated_at"):
 
-            timestamp = summary_data[field]
+            value = summary_data[field]
 
-            if not isinstance(timestamp, str) or not timestamp.strip():
-
+            if not isinstance(value, str) or not value.strip():
                 raise InvalidSessionDataError(
                     f"{field} must be a non-empty string."
                 )
 
             try:
-
                 datetime.fromisoformat(
-                    timestamp.replace("Z", "+00:00")
+                    value.replace("Z", "+00:00")
                 )
 
             except ValueError as error:
-
                 raise InvalidSessionDataError(
-                    f"Invalid {field} timestamp."
+                    f"Invalid timestamp in {field}."
                 ) from error
 
+        # Validate summary text
         summary_text = summary_data["summary"]
 
         if not isinstance(summary_text, str) or not summary_text.strip():
-
             raise InvalidSessionDataError(
                 "Summary text cannot be empty."
             )
@@ -122,6 +122,7 @@ class SummaryStorage:
     # ======================================
 
     def _get_summary_path(self, session_id):
+        """Generate a safe summary file path."""
 
         normalized_id = ConversationStorage.normalize_session_id(
             session_id
@@ -138,11 +139,24 @@ class SummaryStorage:
         Save a summary using atomic file replacement.
         """
 
+        if not isinstance(summary_data, dict):
+            raise InvalidSessionDataError(
+                "Summary data must be a dictionary."
+            )
+
+        # Work with a copy
+        summary_data = dict(summary_data)
+
+        # Normalize UUID
+        summary_data["session_id"] = (
+            ConversationStorage.normalize_session_id(
+                summary_data.get("session_id")
+            )
+        )
+
         self.validate_summary_data(summary_data)
 
-        session_id = ConversationStorage.normalize_session_id(
-            summary_data["session_id"]
-        )
+        session_id = summary_data["session_id"]
 
         file_path = self._get_summary_path(session_id)
 
@@ -182,8 +196,7 @@ class SummaryStorage:
             )
 
             logger.info(
-                "Summary for session %s saved successfully.",
-                session_id
+                "Conversation summary saved successfully."
             )
 
             return file_path
@@ -191,7 +204,7 @@ class SummaryStorage:
         except (OSError, TypeError, ValueError) as error:
 
             raise StorageError(
-                f"Could not save summary: {error}"
+                "Could not save the summary."
             ) from error
 
         finally:
@@ -202,10 +215,8 @@ class SummaryStorage:
                     temp_path.unlink()
 
                 except OSError:
-
                     logger.warning(
-                        "Could not remove temporary summary file: %s",
-                        temp_path
+                        "Could not remove an unfinished summary file."
                     )
 
     # ======================================
@@ -213,9 +224,7 @@ class SummaryStorage:
     # ======================================
 
     def load_summary(self, session_id):
-        """
-        Load a summary using its conversation session ID.
-        """
+        """Retrieve a summary using its session ID."""
 
         file_path = self._get_summary_path(session_id)
 
@@ -225,22 +234,22 @@ class SummaryStorage:
                 encoding="utf-8"
             )
 
-        except FileNotFoundError:
+        except FileNotFoundError as error:
 
             raise SummaryNotFoundError(
                 "No summary exists for this conversation."
-            )
+            ) from error
 
         except UnicodeError as error:
 
             raise InvalidSessionDataError(
-                "The summary file is not valid UTF-8."
+                "The summary file contains invalid UTF-8 data."
             ) from error
 
         except OSError as error:
 
             raise StorageError(
-                f"Could not read summary file: {error}"
+                "Could not read the summary file."
             ) from error
 
         try:
@@ -255,11 +264,17 @@ class SummaryStorage:
 
         self.validate_summary_data(summary_data)
 
-        if summary_data["session_id"] != file_path.stem:
+        normalized_id = ConversationStorage.normalize_session_id(
+            summary_data["session_id"]
+        )
+
+        if normalized_id != file_path.stem:
 
             raise InvalidSessionDataError(
                 "The summary session ID does not match its filename."
             )
+
+        summary_data["session_id"] = normalized_id
 
         return summary_data
 
@@ -271,8 +286,9 @@ class SummaryStorage:
         """
         Retrieve all valid saved summaries.
 
-        Invalid files are skipped so that one corrupted
-        summary does not prevent others from being viewed.
+        Corrupted files are skipped and logged.
+        This prevents one damaged file from blocking
+        access to other valid summaries.
         """
 
         summaries = []
@@ -285,14 +301,14 @@ class SummaryStorage:
 
                 summaries.append(summary)
 
-            except (StorageError, InvalidSessionDataError) as error:
+            except StorageError:
 
                 logger.warning(
-                    "Skipping invalid summary %s: %s",
-                    file_path.name,
-                    error
+                    "Skipping invalid summary file: %s",
+                    file_path.name
                 )
 
+        # Most recently updated summaries appear first
         summaries.sort(
             key=lambda item: item["updated_at"],
             reverse=True
@@ -305,12 +321,7 @@ class SummaryStorage:
     # ======================================
 
     def delete_summary(self, session_id):
-        """
-        Delete a summary file.
-
-        The calling manager is responsible for synchronizing
-        the conversation record.
-        """
+        """Delete a summary by session ID."""
 
         file_path = self._get_summary_path(session_id)
 
@@ -318,14 +329,18 @@ class SummaryStorage:
 
             file_path.unlink()
 
-        except FileNotFoundError:
+        except FileNotFoundError as error:
 
             raise SummaryNotFoundError(
                 "The requested summary does not exist."
-            )
+            ) from error
 
         except OSError as error:
 
             raise StorageError(
-                f"Could not delete summary: {error}"
+                "Could not delete the summary."
             ) from error
+
+        logger.info(
+            "Conversation summary deleted successfully."
+        )
