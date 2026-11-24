@@ -44,15 +44,8 @@ summary_manager = SummaryManager(
 
 def build_assistant_service():
     """
-    Load Role 1's AI functions and connect them
-    to Role 2 and Role 3.
-
-    Expected module:
-        ai_client.py
-
-    Expected functions:
-        generate_response(history)
-        generate_summary(history)
+    Load Role 1's Gemini client and connect it
+    to Roles 2 and 3.
     """
 
     try:
@@ -61,16 +54,34 @@ def build_assistant_service():
 
     except ModuleNotFoundError as error:
 
-        if error.name == "ai_client":
+        missing_package = error.name or ""
+
+        if missing_package == "ai_client":
 
             logger.warning(
-                "Role 1 AI module has not been installed."
+                "Role 1 AI module has not been created."
             )
 
-            return None
+        elif (
+            missing_package == "google"
+            or missing_package.startswith("google.")
+            or missing_package == "dotenv"
+        ):
 
-        raise
+            logger.error(
+                "Gemini dependencies are missing. "
+                "Install requirements.txt."
+            )
 
+        else:
+
+            logger.exception(
+                "An AI module dependency could not be imported."
+            )
+
+        return None
+
+    # Check required functions
     response_generator = getattr(
         ai_module,
         "generate_response",
@@ -80,6 +91,12 @@ def build_assistant_service():
     summary_generator = getattr(
         ai_module,
         "generate_summary",
+        None
+    )
+
+    configuration_checker = getattr(
+        ai_module,
+        "is_configured",
         None
     )
 
@@ -99,18 +116,39 @@ def build_assistant_service():
 
         return None
 
-    logger.info(
-        "Role 1 AI module loaded successfully."
-    )
+    if not callable(configuration_checker):
 
-    return ClinicAssistantService(
+        logger.error(
+            "ai_client.py is missing is_configured()."
+        )
+
+        return None
+
+    # Check actual API key availability
+    if not configuration_checker():
+
+        logger.warning(
+            "Gemini API key is not configured."
+        )
+
+        return None
+
+    # Construct the integrated assistant service
+    service = ClinicAssistantService(
         session_manager=session_manager,
         summary_manager=summary_manager,
         response_generator=response_generator,
         summary_generator=summary_generator
     )
 
+    logger.info(
+        "Gemini AI assistant configured successfully."
+    )
 
+    return service
+
+
+# Initialize AI integration
 assistant_service = build_assistant_service()
 
 
@@ -122,7 +160,6 @@ def pause_application():
     """Wait for the user to press Enter."""
 
     try:
-
         input("\nPress Enter to return to the dashboard...")
 
     except (KeyboardInterrupt, EOFError):
@@ -162,7 +199,8 @@ def start_new_conversation():
         )
 
         console.print(
-            "[bold red]Could not start the conversation.[/bold red]"
+            "[bold red]Could not start the conversation. "
+            "Please check the application logs.[/bold red]"
         )
 
         pause_application()
@@ -211,7 +249,8 @@ def open_existing_conversation():
         )
 
         console.print(
-            "[bold red]Could not open the conversation.[/bold red]"
+            "[bold red]Could not open the conversation. "
+            "Please check the application logs.[/bold red]"
         )
 
         pause_application()
@@ -285,9 +324,9 @@ def main():
 
         console.print(
             Panel(
-                "[yellow]AI integration is not yet available.[/yellow]\n"
+                "[yellow]AI integration is not configured.[/yellow]\n\n"
                 "You can still create, save and reopen conversations.\n"
-                "Contact the Role 1 developer to complete the Gemini connection.",
+                "Check your .env file and Gemini API dependencies.",
                 title="OFFLINE MODE",
                 border_style="yellow"
             )
@@ -296,7 +335,11 @@ def main():
     else:
 
         console.print(
-            "[bold green]AI assistant connected successfully.[/bold green]"
+            Panel(
+                "[bold green]Gemini AI assistant connected successfully.[/bold green]",
+                title="AI MODE",
+                border_style="green"
+            )
         )
 
     logger.info("Clinic Care Assistant started.")
@@ -305,21 +348,19 @@ def main():
 
         try:
 
-            # Calculate actual dashboard statistics
+            # Calculate current dashboard statistics
             total_conversations = session_manager.count_sessions()
 
             total_summaries = summary_manager.count_summaries()
 
-            # Display dashboard
             show_dashboard(
                 total_conversations=total_conversations,
                 total_summaries=total_summaries
             )
 
-            # Display main menu
             selected_option = main_menu()
 
-            # Handle exit
+            # Exit application
             if selected_option is None or selected_option == "exit":
 
                 console.print(
@@ -334,7 +375,7 @@ def main():
 
                 break
 
-            # Navigate menu
+            # Navigate application menu
             if selected_option == "new":
 
                 start_new_conversation()

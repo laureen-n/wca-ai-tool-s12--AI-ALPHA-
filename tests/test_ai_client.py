@@ -338,3 +338,63 @@ def test_gemini_503_error_handled(monkeypatch):
         match="temporarily unavailable"
     ):
         generate_response(SAMPLE_HISTORY)
+
+
+# ==========================================
+# TEST 11: STRICT CLINIC INFORMATION GROUNDING
+# ==========================================
+
+def test_system_prompt_requires_approved_information_only():
+
+    prompt = ai_client.build_system_prompt(
+        "Clinic name: Example Hospital"
+    )
+
+    assert "ONLY approved source" in prompt
+    assert "Do not use your general knowledge" in prompt
+    assert "Never invent doctors' names" in prompt
+    assert "not confirmed" in prompt
+
+
+# ==========================================
+# TEST 12: QUALIFIED INFORMATION MUST BE PRESERVED
+# ==========================================
+
+def test_system_prompt_preserves_information_qualifications():
+
+    prompt = ai_client.build_system_prompt(
+        "Clinic hours: Approximately 8 AM to 5 PM."
+    )
+
+    assert "approximate" in prompt.lower()
+    assert "Never convert an estimate" in prompt
+    assert "do not guarantee" in prompt.lower()
+
+
+# ==========================================
+# TEST 13: EMERGENCY HANDLING
+# ==========================================
+
+def test_system_prompt_includes_emergency_instructions():
+
+    prompt = ai_client.build_system_prompt(
+        "Emergency contact: +254 703 082 000"
+    )
+
+    assert "EMERGENCIES" in prompt
+    assert "immediate in-person emergency medical attention" in prompt
+    assert "approved hospital emergency" in prompt
+
+
+# ==========================================
+# TEST 14: MISSING INFORMATION FALLBACK
+# ==========================================
+
+def test_system_prompt_requires_missing_information_fallback():
+
+    prompt = ai_client.build_system_prompt(
+        "Clinic name: Example Hospital"
+    )
+
+    assert "I don't have confirmed information about that." in prompt
+    assert "Please contact The Nairobi Hospital directly" in prompt
