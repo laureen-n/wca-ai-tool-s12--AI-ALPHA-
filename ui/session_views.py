@@ -123,7 +123,7 @@ def select_session(sessions):
 # ==========================================
 
 def display_conversation(session):
-    """Display the messages belonging to a conversation."""
+    """Display the existing messages in a conversation."""
 
     console.print()
 
@@ -134,7 +134,7 @@ def display_conversation(session):
                 f"Created: {session['created_at']}",
                 style="cyan"
             ),
-            title="ACTIVE CONVERSATION",
+            title="CONVERSATION",
             border_style="bright_cyan"
         )
     )
@@ -177,6 +177,48 @@ def display_conversation(session):
 
 
 # ==========================================
+# DISPLAY A NEW USER MESSAGE
+# ==========================================
+
+def display_user_message(message):
+    """Display only the newly submitted user message."""
+
+    console.print(
+        Panel(
+            Text(message, style="white"),
+            title="YOU",
+            border_style="bright_cyan",
+            padding=(1, 2)
+        )
+    )
+
+
+# ==========================================
+# DISPLAY SESSION END CONFIRMATION
+# ==========================================
+
+def display_session_ended(message=None):
+    """Confirm that a conversation has ended."""
+
+    if message is None:
+
+        message = (
+            "Your conversation has ended.\n"
+            "Your previously saved messages remain available "
+            "in conversation history."
+        )
+
+    console.print(
+        Panel(
+            Text(message, style="white"),
+            title="CONVERSATION ENDED",
+            border_style="green",
+            padding=(1, 2)
+        )
+    )
+
+
+# ==========================================
 # DISPLAY AI RESPONSE
 # ==========================================
 
@@ -214,6 +256,25 @@ def display_ai_response(response):
 
 
 # ==========================================
+# DISPLAY OFFLINE MESSAGE
+# ==========================================
+
+def display_offline_message():
+    """Explain that the question was saved without an AI response."""
+
+    console.print(
+        Panel(
+            "[green]Your question has been saved successfully.[/green]\n\n"
+            "[yellow]AI integration is currently unavailable. "
+            "Your question is stored locally, but no AI response "
+            "has been generated.[/yellow]",
+            title="MESSAGE SAVED",
+            border_style="yellow"
+        )
+    )
+
+
+# ==========================================
 # RUN AN ACTIVE CONVERSATION
 # ==========================================
 
@@ -223,15 +284,38 @@ def run_conversation(
     assistant_service=None
 ):
     """
-    Run a conversation session.
+    Run an interactive conversation session.
 
-    If the AI service is available:
-        Questions are sent to the AI model.
-        Responses are validated and saved.
+    Existing history is displayed once when the session opens.
+    Only newly submitted messages and responses are displayed
+    during the conversation.
 
-    If the AI service is unavailable:
-        Questions are saved locally.
+    AI mode:
+        The assistant service handles message saving and responses.
+
+    Offline mode:
+        User questions are saved locally.
     """
+
+    # ======================================
+    # LOAD CONVERSATION ONCE
+    # ======================================
+
+    try:
+
+        session = session_manager.open_session(session_id)
+
+    except StorageError:
+
+        logger.exception(
+            "Could not load the active conversation."
+        )
+
+        console.print(
+            "[bold red]The conversation could not be loaded.[/bold red]"
+        )
+
+        return
 
     console.print(
         Panel(
@@ -245,28 +329,15 @@ def run_conversation(
         )
     )
 
+    # Display existing history only once.
+    display_conversation(session)
+
+    # ======================================
+    # CONVERSATION INPUT LOOP
+    # ======================================
+
     while True:
 
-        # Load latest conversation
-        try:
-
-            session = session_manager.open_session(session_id)
-
-        except StorageError:
-
-            logger.exception(
-                "Could not load the active conversation."
-            )
-
-            console.print(
-                "[bold red]The conversation could not be loaded.[/bold red]"
-            )
-
-            break
-
-        display_conversation(session)
-
-        # Receive user input
         try:
 
             user_message = questionary.text(
@@ -276,12 +347,15 @@ def run_conversation(
         except (KeyboardInterrupt, EOFError):
 
             console.print(
-                "\n[yellow]Returning from the conversation safely.[/yellow]"
+                "\n[yellow]Conversation interrupted safely.[/yellow]"
             )
 
+            display_session_ended()
             break
 
         if user_message is None:
+
+            display_session_ended()
             break
 
         user_message = user_message.strip()
@@ -294,18 +368,26 @@ def run_conversation(
 
             continue
 
-        # Return to main menu
+        # ==================================
+        # RETURN TO MAIN MENU
+        # ==================================
+
         if user_message.lower() == "/back":
+
+            display_session_ended()
             break
 
-        # Generate a final summary
+        # ==================================
+        # GENERATE CONVERSATION SUMMARY
+        # ==================================
+
         if user_message.lower() == "/summary":
 
             if assistant_service is None:
 
                 console.print(
-                    "[yellow]AI summary generation is not connected yet. "
-                    "Please integrate Role 1's AI module first.[/yellow]"
+                    "[yellow]AI summary generation is unavailable "
+                    "in offline mode.[/yellow]"
                 )
 
                 continue
@@ -330,7 +412,12 @@ def run_conversation(
                     )
                 )
 
-                # Return to dashboard after successful summarization
+                display_session_ended(
+                    "Your conversation has ended.\n"
+                    "Your messages and conversation summary "
+                    "have been saved successfully."
+                )
+
                 break
 
             except AssistantIntegrationError as error:
@@ -367,20 +454,18 @@ def run_conversation(
                     user_message
                 )
 
-                console.print(
-                    Panel(
-                        "[green]Your question has been saved successfully.[/green]\n\n"
-                        "[yellow]AI integration is pending. "
-                        "The assistant will respond once Role 1's API is connected.[/yellow]",
-                        title="MESSAGE SAVED",
-                        border_style="green"
-                    )
-                )
+                display_user_message(user_message)
+
+                display_offline_message()
 
             except (ValueError, StorageError) as error:
 
+                logger.exception(
+                    "Could not save an offline conversation message."
+                )
+
                 console.print(
-                    f"[red]Could not save your question: {error}[/red]"
+                    f"[bold red]Could not save your question: {error}[/bold red]"
                 )
 
             continue
@@ -396,14 +481,22 @@ def run_conversation(
                 user_message
             )
 
+            # The assistant service has saved both messages.
+            # Display only the new messages.
+            display_user_message(user_message)
+
             display_ai_response(response)
 
         except AssistantIntegrationError as error:
 
+            # The question is saved before AI generation in the
+            # normal response-generation and validation failure paths.
+            display_user_message(user_message)
+
             console.print(
                 Panel(
                     f"[yellow]{error}[/yellow]\n\n"
-                    "[dim]Your question remains saved in the conversation.[/dim]",
+                    "[dim]Your question has been saved in the conversation.[/dim]",
                     title="ASSISTANT RESPONSE UNAVAILABLE",
                     border_style="yellow"
                 )
@@ -421,4 +514,5 @@ def run_conversation(
                 "[bold red]An unexpected error occurred while processing your question.[/bold red]"
             )
 
+            display_session_ended()
             break
