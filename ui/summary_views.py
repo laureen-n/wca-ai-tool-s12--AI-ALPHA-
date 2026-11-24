@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-
+from ui.menus import MENU_STYLE, MENU_INSTRUCTION
 
 console = Console()
 
@@ -104,7 +104,9 @@ def select_summary(summaries):
 
     selected = questionary.select(
         "Select a saved summary to view:",
-        choices=choices
+        choices=choices,
+        style=MENU_STYLE,
+        instruction=MENU_INSTRUCTION,
     ).ask()
 
     if selected in (None, "__back__"):

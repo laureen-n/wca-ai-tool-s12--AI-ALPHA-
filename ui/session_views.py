@@ -3,6 +3,7 @@ import logging
 import questionary
 
 from questionary import Choice
+from ui.menus import MENU_STYLE, MENU_INSTRUCTION
 
 from rich.console import Console
 from rich.panel import Panel
@@ -109,7 +110,9 @@ def select_session(sessions):
 
     selected = questionary.select(
         "Select a conversation to open:",
-        choices=choices
+        choices=choices,
+        style=MENU_STYLE,
+        instruction=MENU_INSTRUCTION,
     ).ask()
 
     if selected in (None, "__back__"):

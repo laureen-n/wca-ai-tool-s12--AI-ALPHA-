@@ -14,7 +14,7 @@ from sessions.summary_manager import SummaryManager
 from services.assistant_service import ClinicAssistantService
 
 from ui.dashboard import show_dashboard
-from ui.menus import main_menu
+from ui.menus import main_menu, MENU_STYLE
 
 from ui.session_views import (
     display_sessions,
@@ -403,7 +403,8 @@ def delete_conversation():
 
         confirmed = questionary.confirm(
             "Permanently delete this conversation and its saved summary?",
-            default=False
+            default=False,
+            style=MENU_STYLE
         ).ask()
 
         if confirmed is not True:
