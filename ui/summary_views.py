@@ -1,4 +1,8 @@
 
+import questionary
+
+from questionary import Choice
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -9,11 +13,11 @@ console = Console()
 
 
 # ==========================================
-# DISPLAY SAVED SUMMARIES
+# DISPLAY SAVED SUMMARY HISTORY
 # ==========================================
 
 def display_summaries(summaries):
-    """Display saved conversation summaries."""
+    """Display saved summaries in a professional table."""
 
     if not summaries:
 
@@ -54,17 +58,76 @@ def display_summaries(summaries):
 
     console.print(table)
 
-    # Display full summary information
-    for summary in summaries:
+
+# ==========================================
+# SELECT A SAVED SUMMARY
+# ==========================================
+
+def select_summary(summaries):
+    """Allow the user to select an individual saved summary."""
+
+    if not summaries:
 
         console.print(
-            Panel(
-                Text(
-                    summary["summary"],
-                    style="white"
-                ),
-                title=f"SESSION {summary['session_id'][:8]}",
-                border_style="green",
-                padding=(1, 2)
-            )
+            "[yellow]There are no saved summaries to open.[/yellow]"
         )
+
+        return None
+
+    choices = []
+
+    for summary in summaries:
+
+        session_id = summary["session_id"]
+
+        preview = summary["summary"].replace("\n", " ")
+
+        if len(preview) > 45:
+            preview = preview[:42] + "..."
+
+        label = (
+            f"{session_id[:8]} | "
+            f"{summary['created_at'][:19].replace('T', ' ')} | "
+            f"{preview}"
+        )
+
+        choices.append(
+            Choice(label, value=session_id)
+        )
+
+    choices.append(
+        Choice(
+            "Return to main menu",
+            value="__back__"
+        )
+    )
+
+    selected = questionary.select(
+        "Select a saved summary to view:",
+        choices=choices
+    ).ask()
+
+    if selected in (None, "__back__"):
+        return None
+
+    return selected
+
+
+# ==========================================
+# DISPLAY ONE SAVED SUMMARY
+# ==========================================
+
+def display_summary(summary):
+    """Display the complete contents of one saved summary."""
+
+    console.print(
+        Panel(
+            Text(
+                summary["summary"],
+                style="white"
+            ),
+            title=f"SAVED SUMMARY — SESSION {summary['session_id'][:8]}",
+            border_style="green",
+            padding=(1, 2)
+        )
+    )

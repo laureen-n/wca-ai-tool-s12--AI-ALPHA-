@@ -17,10 +17,15 @@ from ui.menus import main_menu
 from ui.session_views import (
     display_sessions,
     select_session,
+    display_conversation,
     run_conversation
 )
 
-from ui.summary_views import display_summaries
+from ui.summary_views import (
+    display_summaries,
+    select_summary,
+    display_summary
+)
 
 
 # ==========================================
@@ -81,7 +86,6 @@ def build_assistant_service():
 
         return None
 
-    # Check required functions
     response_generator = getattr(
         ai_module,
         "generate_response",
@@ -124,7 +128,6 @@ def build_assistant_service():
 
         return None
 
-    # Check actual API key availability
     if not configuration_checker():
 
         logger.warning(
@@ -133,7 +136,6 @@ def build_assistant_service():
 
         return None
 
-    # Construct the integrated assistant service
     service = ClinicAssistantService(
         session_manager=session_manager,
         summary_manager=summary_manager,
@@ -160,6 +162,7 @@ def pause_application():
     """Wait for the user to press Enter."""
 
     try:
+
         input("\nPress Enter to return to the dashboard...")
 
     except (KeyboardInterrupt, EOFError):
@@ -211,6 +214,7 @@ def start_new_conversation():
 # ==========================================
 
 def open_existing_conversation():
+    """Open a saved conversation and allow the user to continue it."""
 
     try:
 
@@ -236,6 +240,7 @@ def open_existing_conversation():
         if selected_session is None:
             return
 
+        # This option intentionally starts interactive chat mode.
         run_conversation(
             session_manager,
             selected_session,
@@ -261,7 +266,7 @@ def open_existing_conversation():
 # ==========================================
 
 def view_conversation_history():
-    """Display history and allow users to reopen saved conversations."""
+    """Allow users to inspect a saved conversation without editing it."""
 
     try:
 
@@ -280,20 +285,23 @@ def view_conversation_history():
         if selected_session is None:
             return
 
-        run_conversation(
-            session_manager,
-            selected_session,
-            assistant_service
+        # Load the selected conversation without starting chat mode.
+        session = session_manager.open_session(
+            selected_session
         )
+
+        display_conversation(session)
+
+        pause_application()
 
     except Exception:
 
         logger.exception(
-            "Could not display or open conversation history."
+            "Could not display conversation history."
         )
 
         console.print(
-            "[bold red]Could not retrieve or open the selected conversation.[/bold red]"
+            "[bold red]Could not retrieve or display the selected conversation.[/bold red]"
         )
 
         pause_application()
@@ -304,6 +312,7 @@ def view_conversation_history():
 # ==========================================
 
 def view_saved_summaries():
+    """Allow users to browse and view individual saved summaries."""
 
     try:
 
@@ -311,16 +320,33 @@ def view_saved_summaries():
 
         display_summaries(summaries)
 
+        if not summaries:
+
+            pause_application()
+            return
+
+        selected_summary = select_summary(summaries)
+
+        if selected_summary is None:
+            return
+
+        # Retrieve the selected summary through SummaryManager.
+        summary = summary_manager.get_summary(
+            selected_summary
+        )
+
+        display_summary(summary)
+
         pause_application()
 
     except Exception:
 
         logger.exception(
-            "Could not retrieve saved summaries."
+            "Could not retrieve or display saved summaries."
         )
 
         console.print(
-            "[bold red]Could not retrieve summaries.[/bold red]"
+            "[bold red]Could not retrieve or display the selected summary.[/bold red]"
         )
 
         pause_application()
@@ -364,7 +390,6 @@ def main():
 
         try:
 
-            # Calculate current dashboard statistics
             total_conversations = session_manager.count_sessions()
 
             total_summaries = summary_manager.count_summaries()
@@ -376,7 +401,6 @@ def main():
 
             selected_option = main_menu()
 
-            # Exit application
             if selected_option is None or selected_option == "exit":
 
                 console.print(
@@ -391,7 +415,6 @@ def main():
 
                 break
 
-            # Navigate application menu
             if selected_option == "new":
 
                 start_new_conversation()
