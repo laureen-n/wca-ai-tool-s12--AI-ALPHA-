@@ -21,30 +21,20 @@ from ai_client import (
 # ==========================================
 
 class FakeModels:
-    """Simulates Google's generate_content API."""
 
     def __init__(self, output_text):
-
         self.output_text = output_text
         self.last_request = None
 
     def generate_content(self, **kwargs):
-
         self.last_request = kwargs
-
-        return SimpleNamespace(
-            text=self.output_text
-        )
+        return SimpleNamespace(text=self.output_text)
 
 
 class FakeGeminiClient:
-    """Simulates the Gemini SDK client."""
 
     def __init__(self, output_text):
-
-        self.models = FakeModels(
-            output_text
-        )
+        self.models = FakeModels(output_text)
 
 
 # ==========================================
@@ -64,6 +54,15 @@ VALID_JSON_RESPONSE = json.dumps({
     "category": "Opening hours",
     "follow_up_question": "Would you like information about appointments?"
 })
+
+
+REQUIRED_SUMMARY_HEADINGS = [
+    "CONVERSATION OVERVIEW",
+    "KEY QUESTIONS AND TOPICS",
+    "INFORMATION PROVIDED",
+    "UNRESOLVED QUESTIONS",
+    "FOLLOW-UP ACTIONS"
+]
 
 
 # ==========================================
@@ -114,7 +113,6 @@ def test_missing_api_key_raises_error(monkeypatch):
     )
 
     with pytest.raises(AIClientConfigurationError):
-
         ai_client._get_client()
 
 
@@ -125,7 +123,6 @@ def test_missing_api_key_raises_error(monkeypatch):
 def test_invalid_history_rejected():
 
     with pytest.raises(ValueError):
-
         generate_response([
             {
                 "role": "admin",
@@ -141,7 +138,6 @@ def test_invalid_history_rejected():
 def test_empty_history_rejected():
 
     with pytest.raises(ValueError):
-
         generate_response([])
 
 
@@ -167,24 +163,18 @@ def test_generate_response(monkeypatch):
         lambda: "Opening hours: Monday to Friday, 8 AM to 5 PM."
     )
 
-    response = generate_response(
-        SAMPLE_HISTORY
-    )
+    response = generate_response(SAMPLE_HISTORY)
 
     parsed_response = json.loads(response)
 
     assert parsed_response["answer"]
-
     assert parsed_response["category"] == "Opening hours"
-
     assert parsed_response["follow_up_question"]
 
     request = fake_client.models.last_request
 
     assert request["model"] == ai_client.get_model_name()
-
     assert "CONVERSATION HISTORY" in request["contents"]
-
     assert "R - ROLE" in request["config"]["system_instruction"]
 
     assert (
@@ -192,10 +182,7 @@ def test_generate_response(monkeypatch):
         in request["config"]["system_instruction"]
     )
 
-    assert (
-        request["config"]["response_mime_type"]
-        == "application/json"
-    )
+    assert request["config"]["response_mime_type"] == "application/json"
 
     assert (
         request["config"]["response_json_schema"]["required"]
@@ -215,10 +202,22 @@ def test_generate_response(monkeypatch):
 
 def test_generate_summary(monkeypatch):
 
-    expected_summary = (
-        "CONVERSATION OVERVIEW\n"
-        "The user requested information about opening hours."
-    )
+    expected_summary = """
+CONVERSATION OVERVIEW
+The user requested information about opening hours.
+
+KEY QUESTIONS AND TOPICS
+The user asked about clinic opening hours.
+
+INFORMATION PROVIDED
+The assistant advised the user to contact reception.
+
+UNRESOLVED QUESTIONS
+The exact opening hours remain unconfirmed.
+
+FOLLOW-UP ACTIONS
+Contact clinic reception to confirm opening hours.
+""".strip()
 
     fake_client = FakeGeminiClient(
         expected_summary
@@ -230,37 +229,48 @@ def test_generate_summary(monkeypatch):
         lambda: fake_client
     )
 
-    summary = generate_summary(
-        SAMPLE_HISTORY
-    )
+    summary = generate_summary(SAMPLE_HISTORY)
 
     assert summary == expected_summary
 
     request = fake_client.models.last_request
 
     assert request["model"] == ai_client.get_model_name()
-
     assert request["contents"]
 
-    assert "CONVERSATION OVERVIEW" in (
-        request["config"]["system_instruction"]
-    )
+    prompt = request["config"]["system_instruction"]
 
-    assert (
-        "response_mime_type"
-        not in request["config"]
-    )
+    for heading in REQUIRED_SUMMARY_HEADINGS:
+        assert heading in prompt
 
-    assert (
-        "response_json_schema"
-        not in request["config"]
-    )
+    assert "Never omit a heading" in prompt
+    assert "None identified" in prompt
 
-    assert request["config"]["max_output_tokens"] == 600
+    assert "response_mime_type" not in request["config"]
+    assert "response_json_schema" not in request["config"]
+
+    assert request["config"]["max_output_tokens"] == 1200
 
 
 # ==========================================
-# TEST 7: EMPTY GEMINI RESPONSE
+# TEST 7: SUMMARY PROMPT COMPLETENESS
+# ==========================================
+
+def test_summary_prompt_requires_all_headings():
+
+    prompt = ai_client.FINAL_SUMMARY_PROMPT
+
+    assert len(REQUIRED_SUMMARY_HEADINGS) == 5
+
+    for heading in REQUIRED_SUMMARY_HEADINGS:
+        assert heading in prompt
+
+    assert "exactly" in prompt.lower()
+    assert "never omit" in prompt.lower()
+
+
+# ==========================================
+# TEST 8: EMPTY GEMINI RESPONSE
 # ==========================================
 
 def test_empty_gemini_response_rejected(monkeypatch):
@@ -280,41 +290,32 @@ def test_empty_gemini_response_rejected(monkeypatch):
     )
 
     with pytest.raises(AIClientRequestError):
-
         generate_response(SAMPLE_HISTORY)
 
 
 # ==========================================
-# TEST 8: DEFAULT MODEL
+# TEST 9: DEFAULT MODEL
 # ==========================================
 
 def test_default_model_name():
 
     assert ai_client.get_model_name()
-
-    assert isinstance(
-        ai_client.get_model_name(),
-        str
-    )
+    assert isinstance(ai_client.get_model_name(), str)
 
 
 # ==========================================
-# TEST 9: GEMINI 503 ERROR HANDLING
+# TEST 10: GEMINI 503 ERROR HANDLING
 # ==========================================
 
 def test_gemini_503_error_handled(monkeypatch):
 
     class FakeServerError(Exception):
-
         code = 503
 
     class FailingModels:
 
         def generate_content(self, **kwargs):
-
-            raise FakeServerError(
-                "503 Service Unavailable"
-            )
+            raise FakeServerError("503 Service Unavailable")
 
     fake_client = SimpleNamespace(
         models=FailingModels()
@@ -336,5 +337,4 @@ def test_gemini_503_error_handled(monkeypatch):
         AIClientRequestError,
         match="temporarily unavailable"
     ):
-
         generate_response(SAMPLE_HISTORY)
