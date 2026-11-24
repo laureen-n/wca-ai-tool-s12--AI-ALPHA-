@@ -1,6 +1,8 @@
 
 import importlib
 
+import questionary
+
 from rich.console import Console
 from rich.panel import Panel
 
@@ -353,6 +355,111 @@ def view_saved_summaries():
 
 
 # ==========================================
+# DELETE CONVERSATION
+# ==========================================
+
+def delete_conversation():
+    """Allow the user to delete a conversation after confirmation."""
+
+    try:
+
+        sessions = session_manager.list_sessions()
+
+        if not sessions:
+
+            console.print(
+                Panel(
+                    "[yellow]There are no conversations available to delete.[/yellow]",
+                    title="NO SAVED CONVERSATIONS",
+                    border_style="yellow"
+                )
+            )
+
+            pause_application()
+            return
+
+        display_sessions(sessions)
+
+        selected_session = select_session(sessions)
+
+        if selected_session is None:
+            return
+
+        # Display the selected conversation before confirmation.
+        selected_data = session_manager.open_session(
+            selected_session
+        )
+
+        console.print(
+            Panel(
+                f"[cyan]Session ID:[/cyan] {selected_session}\n"
+                f"[cyan]Messages:[/cyan] {len(selected_data['messages'])}\n"
+                f"[cyan]Has summary:[/cyan] "
+                f"{'Yes' if selected_data.get('summary') else 'No'}",
+                title="SELECTED CONVERSATION",
+                border_style="yellow"
+            )
+        )
+
+        confirmed = questionary.confirm(
+            "Permanently delete this conversation and its saved summary?",
+            default=False
+        ).ask()
+
+        if confirmed is not True:
+
+            console.print(
+                Panel(
+                    "[yellow]Deletion cancelled. "
+                    "No conversation data was changed.[/yellow]",
+                    title="DELETION CANCELLED",
+                    border_style="yellow"
+                )
+            )
+
+            return
+
+        session_manager.delete_session(
+            selected_session,
+            summary_manager
+        )
+
+        console.print(
+            Panel(
+                "[bold green]The conversation and its associated summary "
+                "were successfully deleted.[/bold green]",
+                title="DELETION COMPLETE",
+                border_style="green"
+            )
+        )
+
+        logger.info(
+            "User deleted conversation: %s",
+            selected_session
+        )
+
+        pause_application()
+
+    except Exception:
+
+        logger.exception(
+            "Could not delete the selected conversation."
+        )
+
+        console.print(
+            Panel(
+                "[bold red]The conversation could not be deleted. "
+                "Please check the application logs.[/bold red]",
+                title="DELETION FAILED",
+                border_style="red"
+            )
+        )
+
+        pause_application()
+
+
+
+# ==========================================
 # MAIN APPLICATION
 # ==========================================
 
@@ -430,6 +537,10 @@ def main():
             elif selected_option == "summaries":
 
                 view_saved_summaries()
+
+            elif selected_option == "delete":
+
+                delete_conversation()
 
             else:
 

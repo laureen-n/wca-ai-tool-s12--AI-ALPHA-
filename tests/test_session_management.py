@@ -2,6 +2,10 @@ import json
 
 import pytest
 
+from sessions.summary_storage import SummaryStorage
+from sessions.summary_manager import SummaryManager
+from sessions.storage import StorageError
+
 from sessions.manager import SessionManager
 
 from sessions.storage import (
@@ -305,3 +309,48 @@ def test_list_sessions_skips_corrupted_files(session_manager, caplog):
     assert len(sessions) == 1
 
     assert "Skipping invalid conversation file" in caplog.text
+
+
+# ==========================================
+# TEST 16: DELETE CONVERSATION
+# ==========================================
+
+def test_delete_session(session_manager):
+
+    session = session_manager.create_session()
+
+    session_manager.storage.delete_session(
+        session["session_id"]
+    )
+
+    with pytest.raises(SessionNotFoundError):
+
+        session_manager.open_session(
+            session["session_id"]
+        )
+
+
+# ==========================================
+# TEST 17: DELETE MISSING CONVERSATION
+# ==========================================
+
+def test_delete_missing_session(session_manager):
+
+    with pytest.raises(SessionNotFoundError):
+
+        session_manager.storage.delete_session(
+            "e6b47a2e-8bc0-4d04-b7d4-a887d39b5eb1"
+        )
+
+
+# ==========================================
+# TEST 18: INVALID UUID CANNOT BE DELETED
+# ==========================================
+
+def test_delete_session_rejects_invalid_uuid(session_manager):
+
+    with pytest.raises(InvalidSessionDataError):
+
+        session_manager.storage.delete_session(
+            "../../invalid"
+        )

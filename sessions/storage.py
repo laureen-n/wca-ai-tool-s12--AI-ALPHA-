@@ -350,6 +350,35 @@ class ConversationStorage:
 
         return self._read_session_file(file_path)
 
+        # ======================================
+    # DELETE SESSION
+    # ======================================
+
+    def delete_session(self, session_id):
+        """Delete a conversation using its validated UUID."""
+
+        file_path = self._get_session_path(session_id)
+
+        try:
+
+            file_path.unlink()
+
+        except FileNotFoundError as error:
+
+            raise SessionNotFoundError(
+                "The requested conversation does not exist."
+            ) from error
+
+        except OSError as error:
+
+            raise StorageError(
+                "Could not delete the conversation."
+            ) from error
+
+        logger.info(
+            "Conversation deleted successfully."
+        )
+
     # ======================================
     # LIST ALL SESSIONS
     # ======================================

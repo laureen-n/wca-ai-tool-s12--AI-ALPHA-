@@ -1,3 +1,4 @@
+
 import questionary
 
 from questionary import Choice, Style
@@ -43,6 +44,11 @@ def main_menu() -> str | None:
         Choice(
             "View saved summaries",
             value="summaries"
+        ),
+
+        Choice(
+            "Delete a conversation",
+            value="delete"
         ),
 
         Choice(
