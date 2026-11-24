@@ -261,23 +261,39 @@ def open_existing_conversation():
 # ==========================================
 
 def view_conversation_history():
+    """Display history and allow users to reopen saved conversations."""
 
     try:
 
         sessions = session_manager.list_sessions()
 
+        if not sessions:
+
+            display_sessions(sessions)
+            pause_application()
+            return
+
         display_sessions(sessions)
 
-        pause_application()
+        selected_session = select_session(sessions)
+
+        if selected_session is None:
+            return
+
+        run_conversation(
+            session_manager,
+            selected_session,
+            assistant_service
+        )
 
     except Exception:
 
         logger.exception(
-            "Could not display conversation history."
+            "Could not display or open conversation history."
         )
 
         console.print(
-            "[bold red]Could not retrieve conversation history.[/bold red]"
+            "[bold red]Could not retrieve or open the selected conversation.[/bold red]"
         )
 
         pause_application()
