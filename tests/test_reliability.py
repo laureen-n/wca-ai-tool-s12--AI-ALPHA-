@@ -500,3 +500,61 @@ def test_logging_falls_back_when_log_directory_creation_fails(
         logger.handlers.extend(original_handlers)
         logger.setLevel(original_level)
         logger.propagate = original_propagate
+
+
+# ==========================================
+# TEST 14: FAILED MESSAGE UPDATE PRESERVES CONVERSATION
+# ==========================================
+
+def test_failed_message_update_preserves_conversation(
+    reliability_system,
+    monkeypatch
+):
+    import sessions.storage as storage_module
+
+    from sessions.storage import StorageError
+
+    manager = reliability_system["session_manager"]
+    storage = reliability_system["conversation_storage"]
+    session = reliability_system["session"]
+
+    session_id = session["session_id"]
+
+    file_path = (
+        storage.conversations_dir
+        / f"{session_id}.json"
+    )
+
+    original_content = file_path.read_bytes()
+
+    def fail_replace(source, destination):
+        raise OSError(
+            "Simulated file replacement failure."
+        )
+
+    monkeypatch.setattr(
+        storage_module.os,
+        "replace",
+        fail_replace
+    )
+
+    # Adding a message should fail because file replacement fails.
+    with pytest.raises(StorageError):
+        manager.add_message(
+            session_id,
+            "user",
+            "What are the clinic opening hours?"
+        )
+
+    # The original file must remain unchanged.
+    assert file_path.read_bytes() == original_content
+
+    # Reopening must return the original conversation.
+    reopened = manager.open_session(session_id)
+
+    assert reopened["messages"] == []
+
+    assert reopened["summary"] is None
+
+    # Failed temporary files must be cleaned up.
+    assert list(storage.conversations_dir.glob("*.tmp")) == []
